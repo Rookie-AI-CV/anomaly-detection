@@ -1,0 +1,18 @@
+# 核心依赖
+torch>=1.13.0
+torchvision>=0.14.0
+numpy>=1.21.0
+opencv-python>=4.5.0
+Pillow>=9.0.0
+timm>=1.0.24  # 用于 DINOv3 模型（需要 1.0.24+ 版本支持 DINOv3）
+
+# anomalib 相关依赖
+# 注意：anomalib 需要从 git 安装
+git+ssh://git@github.com/Rookie-AI-CV/anomalib.git
+
+# 其他工具库
+scikit-learn>=1.0.0
+matplotlib>=3.5.0
+tqdm>=4.64.0
+pyyaml>=6.0
+wandb>=0.13.0  

@@ -1,0 +1,30 @@
+# PatchCore anomaly detection config file (future extension)
+
+model:
+  name: patchcore
+  backbone: wide_resnet50_2  # backbone model name
+  layers: ["layer2", "layer3"]  # extract feature layers
+  pre_trained: true  # use pre-trained weights
+  
+  num_centers: 50000
+  buffer_size: 2500000
+  coreset_sampling_ratio: 0.01
+  num_neighbors: 9
+
+data:
+  train_data_path: ./data/train
+  val_data_path: null
+  batch_size: 32
+  num_workers: 8
+  image_size: 224
+  data_format: custom_mvtec
+  normal_dir: train/good
+
+training:
+  device: cuda
+  device_id: 0
+
+output:
+  checkpoint_dir: ./checkpoints
+  results_dir: ./results
+  log_dir: ./logs
