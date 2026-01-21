@@ -43,6 +43,7 @@ def download_dinov3_weights(model_name: str = "dinov3_base", output_dir: str = "
         "dinov3_small": "vit_small_patch16_dinov3",
         "dinov3_base": "vit_base_patch16_dinov3",
         "dinov3_large": "vit_large_patch16_dinov3",
+        "dinov3_huge": "vit_huge_patch16_dinov3",
     }
     
     # Hugging Face 仓库映射
@@ -50,6 +51,7 @@ def download_dinov3_weights(model_name: str = "dinov3_base", output_dir: str = "
         "dinov3_small": "timm/vit_small_patch16_dinov3.lvd1689m",
         "dinov3_base": "timm/vit_base_patch16_dinov3.lvd1689m",
         "dinov3_large": "timm/vit_large_patch16_dinov3.lvd1689m",
+        "dinov3_huge": "timm/vit_huge_patch16_dinov3.lvd1689m",
     }
     
     timm_model_name = model_map.get(model_name, model_name)
@@ -92,8 +94,6 @@ def download_dinov3_weights(model_name: str = "dinov3_base", output_dir: str = "
         logger.info("Trying Method 2: Direct download from Hugging Face...")
         
         try:
-            # 方法2: 直接从 Hugging Face Hub 下载
-            # 注意：这需要知道确切的 repo_id 和文件名
             repo_id = f"timm/{timm_model_name}.lvd1689m"
             filename = "pytorch_model.bin"
             
@@ -104,7 +104,6 @@ def download_dinov3_weights(model_name: str = "dinov3_base", output_dir: str = "
                 cache_dir=str(output_dir),
             )
             
-            # 复制到输出目录
             weight_path = output_dir / f"{model_name}.pth"
             import shutil
             shutil.copy2(downloaded_path, weight_path)
@@ -140,7 +139,7 @@ if __name__ == "__main__":
         "--model-name",
         type=str,
         default="dinov3_base",
-        choices=["dinov3_small", "dinov3_base", "dinov3_large"],
+        choices=["dinov3_small", "dinov3_base", "dinov3_large", "dinov3_huge"],
         help="Model name to download (default: dinov3_base)"
     )
     parser.add_argument(

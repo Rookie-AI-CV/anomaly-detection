@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>评估结果查看器</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        .navbar {
+            background: #fff;
+            border-bottom: 2px solid #007bff;
+            padding: 15px 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .navbar-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .navbar-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #007bff;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #eee;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 16px;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+        .tab:hover {
+            color: #007bff;
+        }
+        .tab.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+            font-weight: 600;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .filters {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        select, button {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        .chart-container {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        .chart-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .threshold-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        .threshold-control label {
+            font-size: 14px;
+            color: #333;
+        }
+        .threshold-control input[type="range"] {
+            width: 300px;
+        }
+        .threshold-control input[type="number"] {
+            width: 100px;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .viewer {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .image-container {
+            flex: 1;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            min-height: 500px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .image-container img {
+            max-width: 100%;
+            max-height: 80vh;
+            object-fit: contain;
+            opacity: 1;
+            transition: opacity 0.2s ease-in-out;
+        }
+        .image-container img.loading {
+            opacity: 0;
+        }
+        .image-loading {
+            position: absolute;
+            color: white;
+            font-size: 14px;
+            z-index: 1;
+        }
+        .info-panel {
+            width: 350px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .info-item {
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #eee;
+        }
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .info-value {
+            font-size: 16px;
+            font-weight: 500;
+            color: #333;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge-correct {
+            background: #d4edda;
+            color: #155724;
+        }
+        .badge-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .badge-fp {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .badge-fn {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .badge-tp {
+            background: #d4edda;
+            color: #155724;
+        }
+        .badge-tn {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .badge-normal {
+            background: #e7f3ff;
+            color: #004085;
+        }
+        .badge-anomaly {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .navigation {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .navigation button {
+            min-width: 120px;
+        }
+        .progress {
+            text-align: center;
+            margin-top: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+        .path-info {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+            word-break: break-all;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 1200px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-content">
+            <div class="navbar-title">评估结果查看器</div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('viewer')">图片查看器</button>
+            <button class="tab" onclick="switchTab('analysis')">统计分析</button>
+        </div>
+
+        <!-- 图片查看器标签页 -->
+        <div id="viewer-tab" class="tab-content active">
+            <div class="header-row">
+                <div class="filters">
+                    <label for="filter">筛选：</label>
+                    <select id="filter">
+                        <option value="all">全部</option>
+                        <option value="correct">正确</option>
+                        <option value="error">错误</option>
+                        <option value="fp">误检 (FP)</option>
+                        <option value="fn">漏检 (FN)</option>
+                        <option value="tp">正确检测异常 (TP)</option>
+                        <option value="tn">正确检测正常 (TN)</option>
+                    </select>
+                    <label for="sort">排序：</label>
+                    <select id="sort">
+                        <option value="index">索引</option>
+                        <option value="score">异常分数</option>
+                    </select>
+                    <select id="sortOrder">
+                        <option value="asc">升序</option>
+                        <option value="desc">降序</option>
+                    </select>
+                </div>
+                <div class="stats" id="stats"></div>
+            </div>
+            
+            <div class="viewer">
+                <div class="image-container" id="imageContainer">
+                    <div style="color: white;">加载中...</div>
+                </div>
+                <div class="info-panel">
+                    <div class="info-item">
+                        <div class="info-label">索引</div>
+                        <div class="info-value" id="index">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">真实标签</div>
+                        <div class="info-value">
+                            <span class="badge" id="trueLabel">-</span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">预测标签</div>
+                        <div class="info-value">
+                            <span class="badge" id="predLabel">-</span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">异常分数</div>
+                        <div class="info-value" id="score">-</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">结果</div>
+                        <div class="info-value">
+                            <span class="badge" id="result">-</span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">类型</div>
+                        <div class="info-value">
+                            <span class="badge" id="type">-</span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">图片路径</div>
+                        <div class="path-info" id="path">-</div>
+                    </div>
+                    <div class="navigation">
+                        <button id="prevBtn" onclick="prevImage()">上一张</button>
+                        <button id="nextBtn" onclick="nextImage()">下一张</button>
+                    </div>
+                    <div class="progress" id="progress">- / -</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 统计分析标签页 -->
+        <div id="analysis-tab" class="tab-content">
+            <div id="evalMetricsContainer" style="display: none; margin-bottom: 20px; padding: 20px; background: #f9f9f9; border-radius: 8px;">
+                <div class="chart-title">评估指标（来自JSON文件）</div>
+                <div id="evalMetrics" class="stats"></div>
+            </div>
+
+            <div class="threshold-control">
+                <label for="threshold">阈值：</label>
+                <input type="range" id="thresholdSlider" min="0" max="10" step="0.01" value="0">
+                <input type="number" id="thresholdInput" step="0.01" value="0">
+                <button onclick="resetThreshold()">重置</button>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-container">
+                    <div class="chart-title">异常分数概率密度分布</div>
+                    <canvas id="distributionChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">PR曲线 (Precision-Recall)</div>
+                    <canvas id="prChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentFilter = 'all';
+        let currentSort = 'index';
+        let currentSortOrder = 'asc';
+        let currentThreshold = null;
+        let filteredList = [];
+        let currentIndex = 0;
+        let stats = {};
+        let distributionChart = null;
+        let prChart = null;
+        let scoreRange = { min: 0, max: 10 };
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            if (tabName === 'viewer') {
+                document.querySelector('.tab:first-child').classList.add('active');
+                document.getElementById('viewer-tab').classList.add('active');
+            } else {
+                document.querySelector('.tab:last-child').classList.add('active');
+                document.getElementById('analysis-tab').classList.add('active');
+            }
+        }
+
+        function calculateKDE(data, bandwidth) {
+            if (data.length === 0) {
+                return { x: [], y: [] };
+            }
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const range = max - min || 1;
+            const n = data.length;
+            const step = range / 100;
+            const x = [];
+            const y = [];
+            
+            for (let i = 0; i <= 100; i++) {
+                const xi = min + i * step;
+                let sum = 0;
+                for (let j = 0; j < n; j++) {
+                    const diff = (xi - data[j]) / bandwidth;
+                    sum += Math.exp(-0.5 * diff * diff);
+                }
+                x.push(xi);
+                y.push(sum / (n * bandwidth * Math.sqrt(2 * Math.PI)) || 0);
+            }
+            return { x, y };
+        }
+
+        function calculateBandwidth(data) {
+            if (data.length === 0) return 1.0;
+            const n = data.length;
+            const mean = data.reduce((a, b) => a + b, 0) / n;
+            const variance = data.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / n;
+            const std = Math.sqrt(variance);
+            return 1.06 * std * Math.pow(n, -0.2) || 1.0;
+        }
+
+        async function loadDistribution() {
+            const response = await fetch('/api/distribution');
+            const data = await response.json();
+            
+            scoreRange.min = data.min;
+            scoreRange.max = data.max;
+            
+            const thresholdSlider = document.getElementById('thresholdSlider');
+            const thresholdInput = document.getElementById('thresholdInput');
+            thresholdSlider.min = data.min;
+            thresholdSlider.max = data.max;
+            thresholdSlider.step = (data.max - data.min) / 1000;
+            thresholdSlider.value = data.min;
+            thresholdInput.min = data.min;
+            thresholdInput.max = data.max;
+            thresholdInput.step = (data.max - data.min) / 1000;
+            thresholdInput.value = data.min.toFixed(2);
+            
+            if (data.normal.length === 0 && data.anomaly.length === 0) {
+                return;
+            }
+            
+            const normalBandwidth = calculateBandwidth(data.normal);
+            const anomalyBandwidth = calculateBandwidth(data.anomaly);
+            const normalKDE = calculateKDE(data.normal, normalBandwidth);
+            const anomalyKDE = calculateKDE(data.anomaly, anomalyBandwidth);
+            
+            const ctx = document.getElementById('distributionChart').getContext('2d');
+            
+            if (distributionChart) {
+                distributionChart.destroy();
+            }
+            
+            const datasets = [];
+            if (data.normal.length > 0) {
+                datasets.push({
+                    label: '正常样本',
+                    data: normalKDE.y,
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                });
+            }
+            if (data.anomaly.length > 0) {
+                datasets.push({
+                    label: '异常样本',
+                    data: anomalyKDE.y,
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                });
+            }
+            
+            const labels = normalKDE.x.length > 0 ? normalKDE.x.map(x => x.toFixed(2)) : anomalyKDE.x.map(x => x.toFixed(2));
+            
+            distributionChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '异常分数'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '概率密度'
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+            
+            setTimeout(updateThresholdLine, 100);
+        }
+
+        function updateThresholdLine() {
+            if (!distributionChart) return;
+            
+            const chart = distributionChart;
+            const labels = chart.data.labels;
+            const baseDatasets = chart.data.datasets.filter(d => !d.label || !d.label.startsWith('阈值:'));
+            
+            if (currentThreshold !== null) {
+                let thresholdIndex = -1;
+                let minDiff = Infinity;
+                for (let i = 0; i < labels.length; i++) {
+                    const diff = Math.abs(parseFloat(labels[i]) - currentThreshold);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        thresholdIndex = i;
+                    }
+                }
+                
+                if (thresholdIndex >= 0) {
+                    const maxY = Math.max(...baseDatasets.flatMap(d => d.data || []));
+                    const thresholdData = new Array(labels.length).fill(null);
+                    thresholdData[thresholdIndex] = maxY * 1.1;
+                    
+                    const thresholdDataset = {
+                        label: `阈值: ${currentThreshold.toFixed(2)}`,
+                        data: thresholdData,
+                        borderColor: 'rgb(255, 0, 0)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 5,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: 'rgb(255, 0, 0)',
+                        fill: false,
+                        tension: 0,
+                        showLine: true
+                    };
+                    
+                    chart.data.datasets = [...baseDatasets, thresholdDataset];
+                } else {
+                    chart.data.datasets = baseDatasets;
+                }
+            } else {
+                chart.data.datasets = baseDatasets;
+            }
+            
+            chart.update();
+        }
+
+        async function loadPRCurve() {
+            const response = await fetch('/api/pr_curve');
+            const data = await response.json();
+            
+            const ctx = document.getElementById('prChart').getContext('2d');
+            
+            if (prChart) {
+                prChart.destroy();
+            }
+            
+            prChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: `PR曲线 (AUC = ${data.auc.toFixed(4)})`,
+                        data: data.recall.map((r, i) => ({ x: r, y: data.precision[i] })),
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        fill: true,
+                        tension: 0.1,
+                        pointRadius: 0,
+                        parsing: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Precision: ${context.parsed.y.toFixed(4)}, Recall: ${context.parsed.x.toFixed(4)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: {
+                                display: true,
+                                text: 'Recall (召回率)'
+                            },
+                            min: 0,
+                            max: 1
+                        },
+                        y: {
+                            type: 'linear',
+                            title: {
+                                display: true,
+                                text: 'Precision (精确率)'
+                            },
+                            min: 0,
+                            max: 1
+                        }
+                    }
+                }
+            });
+        }
+
+        function displayJsonMetrics(data) {
+            const container = document.getElementById('evalMetricsContainer');
+            const metricsDiv = document.getElementById('evalMetrics');
+            
+            if (!data.metrics) return;
+            
+            const metrics = data.metrics;
+            const cm = metrics.confusion_matrix || {};
+            const stats = data.score_stats || {};
+            
+            metricsDiv.innerHTML = `
+                <div class="stat-item">
+                    <div class="stat-label">准确率 (Accuracy)</div>
+                    <div class="stat-value">${(metrics.accuracy * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">精确率 (Precision)</div>
+                    <div class="stat-value">${(metrics.precision * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">召回率 (Recall)</div>
+                    <div class="stat-value">${(metrics.recall * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">F1分数</div>
+                    <div class="stat-value">${metrics.f1_score.toFixed(4)}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">AUC-ROC</div>
+                    <div class="stat-value">${metrics.auc_roc.toFixed(4)}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">特异性 (Specificity)</div>
+                    <div class="stat-value">${(metrics.specificity * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">阈值</div>
+                    <div class="stat-value">${metrics.threshold.toFixed(4)}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">TP</div>
+                    <div class="stat-value">${cm.tp || 0}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">TN</div>
+                    <div class="stat-value">${cm.tn || 0}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">FP</div>
+                    <div class="stat-value">${cm.fp || 0}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">FN</div>
+                    <div class="stat-value">${cm.fn || 0}</div>
+                </div>
+                ${stats.mean ? `
+                <div class="stat-item">
+                    <div class="stat-label">分数均值</div>
+                    <div class="stat-value">${stats.mean.toFixed(4)}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">分数标准差</div>
+                    <div class="stat-value">${stats.std.toFixed(4)}</div>
+                </div>
+                ` : ''}
+            `;
+            
+            container.style.display = 'block';
+        }
+
+        async function loadEvalMetrics() {
+            try {
+                const response = await fetch('/api/eval_metrics');
+                if (response.ok) {
+                    const data = await response.json();
+                    jsonMetricsData = data;  // 保存JSON数据
+                    
+                    const container = document.getElementById('evalMetricsContainer');
+                    if (!container) return;
+                    
+                    // 如果当前没有设置阈值，显示JSON文件中的数据
+                    if (currentThreshold === null) {
+                        displayJsonMetrics(data);
+                    }
+                    
+                    // 如果有阈值，设置为默认值
+                    if (data.metrics && data.metrics.threshold !== undefined) {
+                        const thresholdSlider = document.getElementById('thresholdSlider');
+                        const thresholdInput = document.getElementById('thresholdInput');
+                        if (data.metrics.threshold >= scoreRange.min && data.metrics.threshold <= scoreRange.max) {
+                            thresholdSlider.value = data.metrics.threshold;
+                            thresholdInput.value = data.metrics.threshold.toFixed(2);
+                            updateThreshold(data.metrics.threshold);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log('No evaluation metrics available');
+            }
+        }
+
+        async function loadStats() {
+            const url = currentThreshold !== null 
+                ? `/api/stats?threshold=${currentThreshold}` 
+                : '/api/stats';
+            const response = await fetch(url);
+            stats = await response.json();
+            updateStats();
+        }
+
+        let jsonMetricsData = null;  // 保存JSON文件的原始数据
+        
+        function updateStats() {
+            const thresholdText = currentThreshold !== null ? ` (阈值: ${currentThreshold.toFixed(2)})` : '';
+            const statsHtml = `
+                <div class="stat-item">
+                    <div class="stat-label">总数</div>
+                    <div class="stat-value">${stats.total}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">正确率${thresholdText}</div>
+                    <div class="stat-value">${(stats.accuracy * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">漏检率</div>
+                    <div class="stat-value">${(stats.false_negative_rate * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">误检率</div>
+                    <div class="stat-value">${(stats.false_positive_rate * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">误检 (FP)</div>
+                    <div class="stat-value">${stats.fp}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">漏检 (FN)</div>
+                    <div class="stat-value">${stats.fn}</div>
+                </div>
+            `;
+            document.getElementById('stats').innerHTML = statsHtml;
+            
+            // 如果当前有阈值，更新评估指标面板为实时计算的指标
+            if (currentThreshold !== null) {
+                updateEvalMetrics();
+            } else {
+                // 如果阈值被重置，恢复显示JSON文件中的原始数据
+                if (jsonMetricsData) {
+                    displayJsonMetrics(jsonMetricsData);
+                }
+            }
+        }
+
+        function updateEvalMetrics() {
+            const container = document.getElementById('evalMetricsContainer');
+            const metricsDiv = document.getElementById('evalMetrics');
+            
+            if (!stats || !container) return;
+            
+            // 使用实时计算的统计信息更新评估指标面板
+            metricsDiv.innerHTML = `
+                <div class="stat-item">
+                    <div class="stat-label">准确率 (Accuracy)</div>
+                    <div class="stat-value">${(stats.accuracy * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">精确率 (Precision)</div>
+                    <div class="stat-value">${(stats.precision * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">召回率 (Recall)</div>
+                    <div class="stat-value">${(stats.recall * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">F1分数</div>
+                    <div class="stat-value">${stats.f1_score.toFixed(4)}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">特异性 (Specificity)</div>
+                    <div class="stat-value">${(stats.specificity * 100).toFixed(2)}%</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">阈值</div>
+                    <div class="stat-value">${currentThreshold.toFixed(4)}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">TP</div>
+                    <div class="stat-value">${stats.tp}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">TN</div>
+                    <div class="stat-value">${stats.tn}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">FP</div>
+                    <div class="stat-value">${stats.fp}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">FN</div>
+                    <div class="stat-value">${stats.fn}</div>
+                </div>
+            `;
+            
+            container.style.display = 'block';
+        }
+
+        async function loadList(filter, sort, order) {
+            const url = currentThreshold !== null
+                ? `/api/list?filter=${filter}&sort=${sort}&order=${order}&threshold=${currentThreshold}`
+                : `/api/list?filter=${filter}&sort=${sort}&order=${order}`;
+            const response = await fetch(url);
+            filteredList = await response.json();
+            currentIndex = 0;
+            if (filteredList.length > 0) {
+                loadItem(0);
+            } else {
+                document.getElementById('imageContainer').innerHTML = '<div style="color: white;">无数据</div>';
+            }
+            updateNavigation();
+        }
+
+        async function loadItem(index) {
+            if (index < 0 || index >= filteredList.length) return;
+            currentIndex = index;
+            const item = filteredList[index];
+            
+            const imageContainer = document.getElementById('imageContainer');
+            
+            // 预加载新图片
+            const newImg = new Image();
+            newImg.className = 'loading';
+            newImg.src = `/api/image/${item.index}`;
+            
+            // 等待图片加载完成
+            await new Promise((resolve, reject) => {
+                newImg.onload = () => {
+                    // 先更新文本信息
+                    document.getElementById('index').textContent = item.index;
+                    document.getElementById('trueLabel').textContent = item.true_label === 1 ? '异常' : '正常';
+                    document.getElementById('trueLabel').className = 'badge ' + (item.true_label === 1 ? 'badge-anomaly' : 'badge-normal');
+                    document.getElementById('predLabel').textContent = item.predicted_label === 1 ? '异常' : '正常';
+                    document.getElementById('predLabel').className = 'badge ' + (item.predicted_label === 1 ? 'badge-anomaly' : 'badge-normal');
+                    document.getElementById('score').textContent = item.anomaly_score.toFixed(4);
+                    document.getElementById('result').textContent = item.is_correct === 1 ? '正确' : '错误';
+                    document.getElementById('result').className = 'badge ' + (item.is_correct === 1 ? 'badge-correct' : 'badge-error');
+                    document.getElementById('type').textContent = getTypeLabel(item.filter_type);
+                    document.getElementById('type').className = 'badge badge-' + item.filter_type;
+                    document.getElementById('path').textContent = item.image_path;
+                    document.getElementById('progress').textContent = `${index + 1} / ${filteredList.length}`;
+                    
+                    // 清空容器并添加新图片
+                    imageContainer.innerHTML = '';
+                    imageContainer.appendChild(newImg);
+                    
+                    // 移除loading类，触发淡入效果
+                    setTimeout(() => {
+                        newImg.classList.remove('loading');
+                    }, 10);
+                    
+                    resolve();
+                };
+                newImg.onerror = () => {
+                    imageContainer.innerHTML = '<div class="image-loading">图片加载失败</div>';
+                    reject();
+                };
+            });
+            
+            updateNavigation();
+        }
+
+        function getTypeLabel(type) {
+            const labels = {
+                'tp': '正确检测异常 (TP)',
+                'tn': '正确检测正常 (TN)',
+                'fp': '误检 (FP)',
+                'fn': '漏检 (FN)'
+            };
+            return labels[type] || type;
+        }
+
+        function prevImage() {
+            if (currentIndex > 0) {
+                loadItem(currentIndex - 1);
+            }
+        }
+
+        function nextImage() {
+            if (currentIndex < filteredList.length - 1) {
+                loadItem(currentIndex + 1);
+            }
+        }
+
+        function updateNavigation() {
+            document.getElementById('prevBtn').disabled = currentIndex === 0;
+            document.getElementById('nextBtn').disabled = currentIndex >= filteredList.length - 1;
+        }
+
+        function updateThreshold(value) {
+            if (value === undefined) {
+                const slider = document.getElementById('thresholdSlider');
+                value = parseFloat(slider.value);
+            }
+            const input = document.getElementById('thresholdInput');
+            const slider = document.getElementById('thresholdSlider');
+            currentThreshold = value;
+            input.value = value.toFixed(2);
+            slider.value = value;
+            updateThresholdLine();
+            loadStats();
+            loadList(currentFilter, currentSort, currentSortOrder);
+        }
+
+        function resetThreshold() {
+            currentThreshold = null;
+            document.getElementById('thresholdSlider').value = scoreRange.min;
+            document.getElementById('thresholdInput').value = scoreRange.min.toFixed(2);
+            updateThresholdLine();
+            loadStats();
+            loadList(currentFilter, currentSort, currentSortOrder);
+        }
+
+        document.getElementById('thresholdSlider').addEventListener('input', function(e) {
+            const value = parseFloat(e.target.value);
+            document.getElementById('thresholdInput').value = value.toFixed(2);
+            updateThreshold(value);
+        });
+
+        document.getElementById('thresholdInput').addEventListener('change', function(e) {
+            const value = parseFloat(e.target.value);
+            if (value >= scoreRange.min && value <= scoreRange.max) {
+                updateThreshold(value);
+            } else {
+                e.target.value = currentThreshold !== null ? currentThreshold.toFixed(2) : scoreRange.min.toFixed(2);
+            }
+        });
+
+        document.getElementById('filter').addEventListener('change', function(e) {
+            currentFilter = e.target.value;
+            loadList(currentFilter, currentSort, currentSortOrder);
+        });
+
+        document.getElementById('sort').addEventListener('change', function(e) {
+            currentSort = e.target.value;
+            loadList(currentFilter, currentSort, currentSortOrder);
+        });
+
+        document.getElementById('sortOrder').addEventListener('change', function(e) {
+            currentSortOrder = e.target.value;
+            loadList(currentFilter, currentSort, currentSortOrder);
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowLeft') {
+                prevImage();
+            } else if (e.key === 'ArrowRight') {
+                nextImage();
+            }
+        });
+
+        // 初始化加载
+        loadDistribution().then(() => {
+            loadStats();
+            loadList('all', 'index', 'asc');
+            loadPRCurve();
+            // 加载JSON评估指标（如果可用）
+            setTimeout(() => {
+                loadEvalMetrics();
+            }, 100);
+        });
+    </script>
+</body>
+</html>

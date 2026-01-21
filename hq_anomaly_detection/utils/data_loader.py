@@ -36,15 +36,21 @@ def load_dataset(
         
         # 正常样本
         if normal_dir.exists():
-            for img_path in normal_dir.glob("*.png"):
-                data_list.append((str(img_path), 0))
+            for ext in ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff", "*.tif"]:
+                for img_path in normal_dir.glob(ext):
+                    data_list.append((str(img_path), 0))
+                for img_path in normal_dir.glob(ext.upper()):
+                    data_list.append((str(img_path), 0))
         
         # 异常样本（测试集）
         if split == "test":
             for anomaly_type_dir in anomaly_dir.iterdir():
                 if anomaly_type_dir.is_dir() and anomaly_type_dir.name != "good":
-                    for img_path in anomaly_type_dir.glob("*.png"):
-                        data_list.append((str(img_path), 1))
+                    for ext in ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff", "*.tif"]:
+                        for img_path in anomaly_type_dir.glob(ext):
+                            data_list.append((str(img_path), 1))
+                        for img_path in anomaly_type_dir.glob(ext.upper()):
+                            data_list.append((str(img_path), 1))
     
     elif data_format == "custom":
         # 自定义格式
@@ -54,12 +60,18 @@ def load_dataset(
             anomaly_dir = split_dir / "anomaly"
             
             if normal_dir.exists():
-                for img_path in normal_dir.glob("*.png"):
-                    data_list.append((str(img_path), 0))
+                for ext in ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff", "*.tif"]:
+                    for img_path in normal_dir.glob(ext):
+                        data_list.append((str(img_path), 0))
+                    for img_path in normal_dir.glob(ext.upper()):
+                        data_list.append((str(img_path), 0))
             
             if anomaly_dir.exists():
-                for img_path in anomaly_dir.glob("*.png"):
-                    data_list.append((str(img_path), 1))
+                for ext in ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff", "*.tif"]:
+                    for img_path in anomaly_dir.glob(ext):
+                        data_list.append((str(img_path), 1))
+                    for img_path in anomaly_dir.glob(ext.upper()):
+                        data_list.append((str(img_path), 1))
     
     return data_list
 

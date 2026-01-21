@@ -20,12 +20,13 @@ logger = logging.getLogger(__name__)
 class AnomalyDetector:
     """Unified anomaly detector interface."""
     
-    def __init__(self, config_path: Union[str, Path]):
+    def __init__(self, config_path: Union[str, Path], checkpoint_path: Optional[Union[str, Path]] = None):
         """
         Initialize anomaly detector from config file.
         
         Args:
             config_path: Path to YAML config file
+            checkpoint_path: Optional checkpoint path (if provided, will use model info from checkpoint)
         """
         from hq_anomaly_detection.core.config import Config
         
@@ -36,6 +37,24 @@ class AnomalyDetector:
         self.model_name = self.config.get("model.name")
         if self.model_name is None:
             raise ValueError("Config must contain 'model.name' field")
+        
+        # If checkpoint provided, load model info from it first to avoid downloading
+        self.checkpoint_path = None
+        if checkpoint_path:
+            checkpoint_path = Path(checkpoint_path)
+            if checkpoint_path.exists():
+                self.checkpoint_path = checkpoint_path
+                checkpoint = torch.load(checkpoint_path, map_location='cpu')
+                # Use model info from checkpoint if available
+                if 'model_name' in checkpoint:
+                    self.config.set("model.dino_model_name", checkpoint['model_name'])
+                # If checkpoint has feature_extractor_state_dict, skip downloading by setting a dummy model_path
+                # The weights will be loaded from checkpoint later
+                if 'feature_extractor_state_dict' in checkpoint:
+                    # Set a dummy path to prevent downloading (will load from checkpoint instead)
+                    self.config.set("model.model_path", "__checkpoint__")
+                elif 'model_path' in checkpoint and checkpoint['model_path']:
+                    self.config.set("model.model_path", checkpoint['model_path'])
         
         self._initialize_model()
     
@@ -66,6 +85,9 @@ class AnomalyDetector:
             )
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
+        
+        # Move model to configured device
+        self._move_model_to_device()
     
     def load_model(self, checkpoint_path: Union[str, Path]):
         """
@@ -83,6 +105,23 @@ class AnomalyDetector:
             self.model.load_checkpoint(checkpoint_path)
         else:
             raise ValueError(f"Model loading for {self.model_name} not yet implemented.")
+        
+        # Move model to GPU if available
+        self._move_model_to_device()
+    
+    def _move_model_to_device(self):
+        """Move model to configured device (GPU or CPU)."""
+        device_str = self.config.get("training.device", "cuda")
+        device_id = self.config.get("training.device_id", 0)
+        
+        if device_str == "cuda" and torch.cuda.is_available():
+            device = torch.device(f"cuda:{device_id}")
+            logger.info(f"Moving model to GPU: {device}")
+            self.model = self.model.to(device)
+        else:
+            device = torch.device("cpu")
+            logger.info("Moving model to CPU (CUDA not available or device set to cpu)")
+            self.model = self.model.to(device)
     
     def train(self):
         """Train model using batch loading strategy to avoid memory overflow."""
@@ -98,19 +137,8 @@ class AnomalyDetector:
             image_size = self.config.get("data.image_size")
             sampling_ratio = self.config.get("training.sampling_ratio") or None
             
-            # Get device configuration
-            device_str = self.config.get("training.device", "cuda")
-            device_id = self.config.get("training.device_id", 0)
-            
-            if device_str == "cuda" and torch.cuda.is_available():
-                device = torch.device(f"cuda:{device_id}")
-                logger.info(f"Using GPU: {device}")
-                # Move model to GPU
-                self.model = self.model.to(device)
-            else:
-                device = torch.device("cpu")
-                logger.info("Using CPU (CUDA not available or device set to cpu)")
-                self.model = self.model.to(device)
+            # Get device (model should already be on device from _initialize_model)
+            device = next(self.model.parameters()).device if next(self.model.parameters()).is_cuda else torch.device('cpu')
             
             # Get augmentation configuration
             use_augmentation = self.config.get("data.use_augmentation", True)

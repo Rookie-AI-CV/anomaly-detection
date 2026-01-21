@@ -32,6 +32,7 @@ DINOV3_MODEL_NAME_MAP = {
     "dinov3_small": "vit_small_patch16_dinov3",
     "dinov3_base": "vit_base_patch16_dinov3",
     "dinov3_large": "vit_large_patch16_dinov3",
+    "dinov3_huge": "vit_huge_patch16_dinov3",
 }
 
 # DINOv3 model Hugging Face Hub repository mapping
@@ -39,6 +40,7 @@ DINOV3_HF_REPO_MAP = {
     "dinov3_small": "timm/vit_small_patch16_dinov3.lvd1689m",
     "dinov3_base": "timm/vit_base_patch16_dinov3.lvd1689m",
     "dinov3_large": "timm/vit_large_patch16_dinov3.lvd1689m",
+    "dinov3_huge": "timm/vit_huge_patch16_dinov3.lvd1689m",
 }
 
 
@@ -83,22 +85,85 @@ class DINOv3FeatureExtractor(nn.Module):
         """
         super().__init__()
         self.model_name = model_name
-        self.model_path = Path(model_path) if model_path else None
+        # Skip downloading if model_path is a special marker (will load from checkpoint)
+        if model_path == "__checkpoint__":
+            self.model_path = None
+            self._skip_download = True
+        else:
+            self.model_path = Path(model_path) if model_path else None
+            self._skip_download = False
         self.use_cls_token = use_cls_token
         
         # Get timm model name (may need mapping)
         timm_model_name = _get_timm_model_name(model_name)
         
         # Load model
-        if self.model_path and self.model_path.exists():
+        if self._skip_download:
+            # Skip downloading, will load from checkpoint later
+            logger.info(f"Skipping model loading (will load from checkpoint): {timm_model_name}")
+            
+            # Try multiple possible model names for huge models
+            possible_names = [timm_model_name]
+            if 'huge' in model_name.lower() or 'huge' in timm_model_name.lower():
+                possible_names.extend([
+                    'vit_huge_patch16_dinov3',
+                    'vit_huge_plus_patch16_dinov3',
+                    'vit_huge_patch14_dinov3',
+                ])
+            
+            # Try each possible model name
+            backbone_model = None
+            for name in possible_names:
+                try:
+                    backbone_model = timm.create_model(
+                        model_name=name,
+                        pretrained=False,
+                        num_classes=0,
+                        **kwargs
+                    )
+                    logger.info(f"Successfully created model with name: {name}")
+                    break
+                except Exception as e:
+                    if name == possible_names[-1]:
+                        raise RuntimeError(f"Failed to create model with any of the names: {possible_names}. Last error: {e}")
+                    continue
+            
+            self.backbone_model = backbone_model
+        elif self.model_path and self.model_path.exists():
             # Load model from local path
             logger.info(f"Loading DINOv3 model from local path: {self.model_path}")
-            self.backbone_model = timm.create_model(
-                model_name=timm_model_name,
-                pretrained=False,  # Don't download from internet
-                num_classes=0,  # Remove classification head
-                **kwargs
-            )
+            
+            # Try to infer model name from path if timm_model_name doesn't work
+            # Check if parent directory contains model name hints
+            model_path_str = str(self.model_path)
+            possible_names = [timm_model_name]
+            
+            # Try to extract model name from path (e.g., vit_huge_plus_patch16_dinov3)
+            if 'vit_huge' in model_path_str.lower():
+                possible_names.extend([
+                    'vit_huge_patch16_dinov3',
+                    'vit_huge_plus_patch16_dinov3',
+                    'vit_huge_patch14_dinov3',
+                ])
+            
+            # Try each possible model name
+            backbone_model = None
+            for name in possible_names:
+                try:
+                    backbone_model = timm.create_model(
+                        model_name=name,
+                        pretrained=False,
+                        num_classes=0,
+                        **kwargs
+                    )
+                    logger.info(f"Successfully created model with name: {name}")
+                    break
+                except Exception as e:
+                    if name == possible_names[-1]:
+                        raise RuntimeError(f"Failed to create model with any of the names: {possible_names}. Last error: {e}")
+                    continue
+            
+            self.backbone_model = backbone_model
             # Load local weights (supports .pth, .pt, .safetensors formats)
             model_path_str = str(self.model_path)
             
@@ -246,6 +311,8 @@ class DINOv3FeatureExtractor(nn.Module):
             # Infer from model name
             if 'vitg' in self.model_name or 'giant' in self.model_name:
                 return 1536
+            elif 'vith' in self.model_name or 'huge' in self.model_name:
+                return 1280
             elif 'vitl' in self.model_name or 'large' in self.model_name:
                 return 1024
             elif 'vitb' in self.model_name or 'base' in self.model_name:
