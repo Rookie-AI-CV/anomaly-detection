@@ -131,6 +131,9 @@ class AnomalyDetector:
             raise ValueError("Model not initialized. Call __init__ first.")
         
         if self.model_name == "dinov3_image_level":
+            # Get detection mode (default: image_level)
+            detection_mode = self.config.get("model.detection_mode", "image_level")
+            
             train_data_path = self.config.get("data.train_data_path")
             batch_size = self.config.get("data.batch_size")
             num_workers = self.config.get("data.num_workers")
@@ -145,6 +148,7 @@ class AnomalyDetector:
             
             # Print training configuration information
             logger.info(f"Training configuration:")
+            logger.info(f"  - Detection mode: {detection_mode}")
             logger.info(f"  - Device: {device}")
             logger.info(f"  - Image size: {image_size}")
             logger.info(f"  - Batch size: {batch_size}")
@@ -166,13 +170,24 @@ class AnomalyDetector:
                 pin_memory=(device.type == "cuda"),  # Use pin_memory only for GPU
             )
             
-            logger.info("Extracting features from training data...")
-            self.model.extract_features_batch(train_dataloader, device=device)
-            
-            logger.info("Building memory bank...")
-            self.model.build_memory_bank(sampling_ratio)
-            
-            logger.info("Training completed!")
+            if detection_mode == "patchcore_style":
+                # PatchCore-style: extract patch-level features
+                logger.info("Extracting patch-level features from training data...")
+                self.model.extract_patch_features_batch(train_dataloader, device=device)
+                
+                logger.info("Building patch memory bank...")
+                self.model.build_patch_memory_bank(sampling_ratio)
+                
+                logger.info("PatchCore-style training completed!")
+            else:
+                # Image-level: extract image-level features (cls_token)
+                logger.info("Extracting image-level features from training data...")
+                self.model.extract_features_batch(train_dataloader, device=device)
+                
+                logger.info("Building memory bank...")
+                self.model.build_memory_bank(sampling_ratio)
+                
+                logger.info("Image-level training completed!")
         else:
             raise ValueError(f"Training for {self.model_name} not yet implemented.")
     
@@ -200,6 +215,9 @@ class AnomalyDetector:
             raise ValueError("Model not initialized. Call __init__ first.")
         
         if self.model_name == "dinov3_image_level":
+            # Get detection mode (default: image_level)
+            detection_mode = self.config.get("model.detection_mode", "image_level")
+            
             image_size = self.config.get("data.image_size")
             
             image = Image.open(image_path).convert('RGB')
@@ -214,18 +232,84 @@ class AnomalyDetector:
             image_tensor = image_tensor.to(device)
             
             with torch.no_grad():
-                result = self.model.predict(image_tensor)
+                if detection_mode == "patchcore_style":
+                    # Use PatchCore-style detection
+                    result = self.model.predict_patchcore_style(image_tensor, return_anomaly_map=False)
+                else:
+                    # Use image-level detection
+                    result = self.model.predict(image_tensor)
             
+            prediction = None
             if threshold is not None:
-                result['prediction'] = result['anomaly_score'] > threshold
+                prediction = result['anomaly_score'] > threshold
             
-            return {
+            return_dict = {
                 "anomaly_score": float(result['anomaly_score'][0]),
-                "anomaly_map": None,
-                "prediction": bool(result['prediction'][0]),
+                "anomaly_map": result.get('anomaly_map', None),
             }
+            if prediction is not None:
+                return_dict["prediction"] = bool(prediction[0])
+            
+            return return_dict
         else:
             raise ValueError(f"Detection for {self.model_name} not yet implemented.")
+    
+    def detect_patchcore_style(
+        self,
+        image_path: Union[str, Path],
+        threshold: Optional[float] = None,
+        return_anomaly_map: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Detect anomalies using PatchCore-style method (patch-level features + max pooling).
+        
+        Args:
+            image_path: Path to image
+            threshold: Optional anomaly threshold
+            return_anomaly_map: Whether to return anomaly map
+            
+        Returns:
+            Dict with:
+            - anomaly_score: Anomaly score (max of patch scores)
+            - anomaly_map: Anomaly map (patch-level scores) or None
+            - prediction: Whether anomaly detected
+        """
+        logger.debug(f"Detecting anomalies using PatchCore-style method in {image_path}")
+        
+        if self.model is None:
+            raise ValueError("Model not initialized. Call __init__ first.")
+        
+        if self.model_name == "dinov3_image_level":
+            image_size = self.config.get("data.image_size")
+            
+            image = Image.open(image_path).convert('RGB')
+            transform = transforms.Compose([
+                transforms.Resize((image_size, image_size)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            image_tensor = transform(image).unsqueeze(0)
+            
+            device = next(self.model.parameters()).device if next(self.model.parameters()).is_cuda else torch.device('cpu')
+            image_tensor = image_tensor.to(device)
+            
+            with torch.no_grad():
+                result = self.model.predict_patchcore_style(image_tensor, return_anomaly_map=return_anomaly_map)
+            
+            prediction = None
+            if threshold is not None:
+                prediction = result['anomaly_score'] > threshold
+            
+            return_dict = {
+                "anomaly_score": float(result['anomaly_score'][0]),
+                "anomaly_map": result['anomaly_map'][0] if result['anomaly_map'] is not None else None,
+            }
+            if prediction is not None:
+                return_dict["prediction"] = bool(prediction[0])
+            
+            return return_dict
+        else:
+            raise ValueError(f"PatchCore-style detection for {self.model_name} not yet implemented.")
     
     def predict_batch(
         self,

@@ -1,10 +1,3 @@
-"""
-内存银行模块
-
-实现分批加载数据策略，优化内存使用。
-参考 projects/PatchCore 的实现。
-"""
-
 import logging
 from typing import Optional
 import torch
@@ -15,10 +8,10 @@ logger = logging.getLogger(__name__)
 
 class KCenterGreedyMemoryBank:
     """
-    K-Center Greedy 内存银行
+    K-Center Greedy 
     
-    实现分批加载数据策略，避免内存溢出。
-    当 buffer 满时会自动采样，然后再添加新的 embedding。
+    Implement batch loading data strategy to avoid memory overflow.
+    When buffer is full, automatically sample, then add new embeddings.
     """
     
     def __init__(
@@ -27,11 +20,10 @@ class KCenterGreedyMemoryBank:
         buffer_size: int = 2500000,
     ):
         """
-        初始化内存银行
-        
+        Initialize KCenterGreedyMemoryBank.
         Args:
-            num_centers: 内存银行中的最大样本数
-            buffer_size: 缓冲区的最大大小（用于累积 embedding）
+            num_centers: Maximum number of samples in memory bank
+            buffer_size: Maximum size of buffer (for accumulating embeddings)
         """
         self.num_centers = num_centers
         self.buffer_size = buffer_size
@@ -44,31 +36,31 @@ class KCenterGreedyMemoryBank:
     
     def add_embeddings(self, embeddings: Tensor) -> None:
         """
-        添加新的 embedding 到缓冲区
+        Add new embeddings to buffer.
         
-        当缓冲区满时，会自动采样后再添加新的 embedding。
+        When buffer is full, automatically sample, then add new embeddings.
         
         Args:
-            embeddings: 新的 embedding [N, D]
+            embeddings: New embeddings [N, D]
         """
         if self.embeddings is None:
             self.embeddings = embeddings
         else:
             if self.embeddings.shape[0] < self.buffer_size:
-                # 缓冲区未满，直接添加
+                # Buffer is not full, add directly
                 self.embeddings = torch.vstack([self.embeddings, embeddings])
             else:
-                # 缓冲区已满，需要采样后再添加
+                # Buffer is full, sample before adding
                 logger.warning(
                     f"Buffer full ({self.embeddings.shape[0]} >= {self.buffer_size}). "
                     "Sampling before adding new embeddings."
                 )
                 self.sample()
-                # 添加新的 embedding
+                # Add new embeddings
                 if self.embeddings.shape[0] + embeddings.shape[0] <= self.buffer_size:
                     self.embeddings = torch.vstack([self.embeddings, embeddings])
                 else:
-                    # 仍然太大，需要合并后重新采样
+                    # Still too large, merge and resample
                     temp_embeddings = torch.vstack([self.embeddings, embeddings])
                     sampling_ratio = self.num_centers / temp_embeddings.shape[0]
                     self.embeddings = self._k_center_greedy_sample(
@@ -82,13 +74,13 @@ class KCenterGreedyMemoryBank:
     
     def sample(self, sampling_ratio: Optional[float] = None) -> Tensor:
         """
-        从累积的 embedding 中采样构建内存银行
+        Sample from accumulated embeddings to build memory bank.
         
         Args:
-            sampling_ratio: 采样比例（如果为 None，使用 num_centers）
+            sampling_ratio: Sampling ratio (if None, use num_centers)
             
         Returns:
-            采样后的 embedding [num_centers, D]
+            Sampled embeddings [num_centers, D]
         """
         if self.embeddings is None or self.embeddings.shape[0] == 0:
             raise ValueError("No embeddings to sample. Add embeddings first.")
@@ -96,10 +88,10 @@ class KCenterGreedyMemoryBank:
         if sampling_ratio is None:
             sampling_ratio = self.num_centers / self.embeddings.shape[0]
         
-        # 限制采样比例在 [0, 1] 之间
+        # Limit sampling ratio to [0, 1]
         sampling_ratio = max(0.0, min(1.0, sampling_ratio))
         
-        # 如果 embedding 数量已经少于 num_centers，返回所有
+        # If number of embeddings is less than num_centers, return all embeddings
         if self.embeddings.shape[0] <= self.num_centers:
             logger.info(
                 f"Embeddings ({self.embeddings.shape[0]}) <= num_centers ({self.num_centers}). "
@@ -107,7 +99,7 @@ class KCenterGreedyMemoryBank:
             )
             return self.embeddings
         
-        # 使用 K-Center Greedy 采样
+        # Use K-Center Greedy sampling
         sampled_embeddings = self._k_center_greedy_sample(
             self.embeddings, sampling_ratio
         )
@@ -126,14 +118,14 @@ class KCenterGreedyMemoryBank:
         self, embeddings: Tensor, sampling_ratio: float
     ) -> Tensor:
         """
-        使用 K-Center Greedy 算法采样
+        Use K-Center Greedy algorithm to sample.
         
         Args:
-            embeddings: 输入 embedding [N, D]
-            sampling_ratio: 采样比例
+            embeddings: Input embeddings [N, D]
+            sampling_ratio: Sampling ratio
             
         Returns:
-            采样后的 embedding [M, D]，其中 M = int(N * sampling_ratio)
+            Sampled embeddings [M, D], where M = int(N * sampling_ratio)
         """
         num_samples = int(embeddings.shape[0] * sampling_ratio)
         num_samples = max(1, min(num_samples, embeddings.shape[0]))
@@ -141,43 +133,43 @@ class KCenterGreedyMemoryBank:
         if num_samples >= embeddings.shape[0]:
             return embeddings
         
-        # 使用简单的 K-Center Greedy 实现
-        # 选择第一个样本（随机或第一个）
+        # Use simple K-Center Greedy implementation
+        # Select first sample (random or first)
         selected_indices = [0]
         distances = torch.cdist(embeddings, embeddings[0:1])[:, 0]
         
-        # 迭代选择剩余的样本
+        # Iterate to select remaining samples
         for _ in range(1, num_samples):
-            # 找到距离已选择样本集合最远的点
+            # Find the farthest point from the selected sample set
             min_distances = torch.min(
                 torch.cdist(embeddings, embeddings[selected_indices]), dim=1
             )[0]
-            # 选择距离最远的点
+            # Select the farthest point
             farthest_idx = torch.argmax(min_distances).item()
             selected_indices.append(farthest_idx)
         
         return embeddings[selected_indices]
     
     def reset(self) -> None:
-        """重置内存银行缓冲区"""
+        """Reset memory bank buffer."""
         self.embeddings = None
         logger.info("Memory bank reset.")
     
     def get_embeddings(self) -> Optional[Tensor]:
         """
-        获取当前的 embedding 缓冲区
+        Get current embedding buffer.
         
         Returns:
-            当前的 embedding 或 None
+            Current embeddings or None
         """
         return self.embeddings
     
     def get_statistics(self) -> dict:
         """
-        获取统计信息
+        Get statistics.
         
         Returns:
-            统计信息字典
+            Statistics dictionary
         """
         stats = {
             'total_embeddings': (

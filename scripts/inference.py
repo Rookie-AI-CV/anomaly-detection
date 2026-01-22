@@ -62,11 +62,11 @@ def save_results(results: List[Dict], output_dir: Path, save_json: bool, save_cs
             writer = csv.DictWriter(f, fieldnames=['image_path', 'anomaly_score', 'prediction'])
             writer.writeheader()
             for r in results:
-                writer.writerow({
-                    'image_path': r['image_path'],
-                    'anomaly_score': f"{r['anomaly_score']:.6f}",
-                    'prediction': 'anomaly' if r['prediction'] else 'normal'
-                })
+            writer.writerow({
+                'image_path': r['image_path'],
+                'anomaly_score': f"{r['anomaly_score']:.6f}",
+                'prediction': 'anomaly' if r.get('prediction', False) else ('normal' if r.get('prediction') is False else 'N/A')
+            })
         print(f"CSV: {csv_path}")
 
 
@@ -115,7 +115,7 @@ def main():
                 results.append({
                     'image_path': str(img_path),
                     'anomaly_score': result['anomaly_score'],
-                    'prediction': result['prediction']
+                    'prediction': result.get('prediction', None)
                 })
             print(f"Processed: {min(i + args.batch_size, len(image_paths))}/{len(image_paths)}")
     else:
@@ -123,10 +123,10 @@ def main():
         results.append({
             'image_path': str(image_paths[0]),
             'anomaly_score': result['anomaly_score'],
-            'prediction': result['prediction']
+            'prediction': result.get('prediction', None)
         })
     
-    anomaly_count = sum(1 for r in results if r['prediction'])
+    anomaly_count = sum(1 for r in results if r.get('prediction', False))
     normal_count = len(results) - anomaly_count
     avg_score = np.mean([r['anomaly_score'] for r in results])
     
