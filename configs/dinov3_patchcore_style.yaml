@@ -1,47 +1,29 @@
-# DINOv3 PatchCore-style 图像级别异常检测配置文件
-# 使用 patch-level features (pixel tokens) 和 PatchCore 逻辑（1-NN + max pooling）
+# DINOv3 异常检测配置
+# 检测模式：cls / patch / combined
 
 model:
-  name: dinov3_image_level  # 使用相同的模型类
-  detection_mode: patchcore_style  # 检测模式：patchcore_style 或 image_level (默认)
-  dino_model_name: dinov3_huge  # DINOv3 model name (dinov3_base, dinov3_large, etc.)
-  model_path: null  # local model path (if provided, don't download automatically, if null, download from timm)
-  
-  num_centers: 500000           # maximum number of samples in memory bank
-  buffer_size: 25000000         # maximum size of buffer (batch loading strategy)
-  num_neighbors: 1             # number of neighbors for K-NN (not used in patchcore_style mode)
+  name: dinov3_image_level          # 模型名称，"dinov3_image_level" 是可用的模型之一
+  dino_model_name: dinov3_base      # backbone，通常选择 dinov3_base
+  model_path: null                  # 可选，自定义 DINOv3 权重
+  num_centers: 50000                # PatchCore 聚类中心数量（更小，减少内存消耗）
+  buffer_size: 2500000               # 记忆库的buffer大小（可以根据显存调整）
+  num_neighbors: 1                  # PatchCore 默认1-NN
+  reduce_dim: 128                   # PatchCore降维到128（经典设置）
+  use_faiss: true                   # 使用faiss加速KNN
+  detection_mode: patch             # patch 级别，PatchCore 风格
+  cls_weight: 0.5                   # 仅combined模式有效，cls模式可忽略
 
 data:
-  train_data_path: ./data/train    # training data path
-  val_data_path: null              # validation data path (optional)
-  
-  batch_size: 8                    # batch size (reduced for dinov3_huge to avoid OOM)
-  num_workers: 8                   # number of workers for data loader
-  image_size: 512                   # image size (can reduce to 384 or 256 if OOM)
-  
-  # Data augmentation (only applied during training)
-  use_augmentation: true           # enable data augmentation
-  # Augmentation options:
-  # - RandomCrop: Random crop from slightly larger image (1.1x size)
-  # - RandomHorizontalFlip: Random horizontal flip (p=0.5)
-  # - RandomVerticalFlip: Random vertical flip (p=0.3)
-  # - ColorJitter: Random color jitter (brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1)
-  # - RandomRotation: Random rotation (±10 degrees)
-  # - RandomErasing: Random erasing (p=0.1, scale=(0.02, 0.1))
-  
-  data_format: custom_mvtec        # data format (custom_mvtec, mvtec, etc.)
-  normal_dir: train/good           # normal sample directory (for Folder format)
+  train_data_path: ./data/train     # 训练样本路径
+  batch_size: 8                     # batch size
+  num_workers: 8                    # 数据加载线程数
+  image_size: 512                   # 训练和推理图像大小
+  use_augmentation: true            # 训练图像是否增强
 
 training:
-  sampling_ratio: null             # sampling ratio (if null, use num_centers)
-  device: cuda                     # device (cuda, cpu)
-  device_id: 0                     # GPU device ID
+  device: cuda                      # 训练/推理设备
+  device_id: 0                      # GPU编号
 
 output:
-  checkpoint_dir: ./checkpoints    # checkpoint save directory
-  results_dir: ./results           # results save directory
-  log_dir: ./logs                  # log save directory
+  dir: ./outputs-patch                    # 输出目录
 
-misc:
-  seed: 42                         # random seed
-  verbose: true                    # verbose

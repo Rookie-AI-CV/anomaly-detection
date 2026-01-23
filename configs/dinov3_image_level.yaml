@@ -1,45 +1,30 @@
-# DINOv3 图像级别异常检测配置文件
+# DINOv3 异常检测配置
+# 检测模式：cls / patch / combined
 
 model:
   name: dinov3_image_level
-  dino_model_name: dinov3_base  # DINOv3 model name (dinov3_base, dinov3_large, etc.)
-  model_path: null  # local model path (if provided, don't download automatically, if null, download from timm)
+  dino_model_name: dinov3_base
+  model_path: null
   
-  num_centers: 500000           # maximum number of samples in memory bank
-  buffer_size: 25000000         # maximum size of buffer (batch loading strategy)
-  num_neighbors: 1             # number of neighbors for K-NN
+  num_centers: 500000
+  buffer_size: 25000000
+  num_neighbors: 1
+  reduce_dim: null
+  use_faiss: true
+  
+  detection_mode: cls
+  cls_weight: 0.5
 
 data:
-  train_data_path: ./data/train    # training data path
-  val_data_path: null              # validation data path (optional)
-  
-  batch_size: 32                   # batch size
-  num_workers: 8                   # number of workers for data loader
-  image_size: 512                   # image size
-  
-  # Data augmentation (only applied during training)
-  use_augmentation: true           # enable data augmentation
-  # Augmentation options:
-  # - RandomCrop: Random crop from slightly larger image (1.1x size)
-  # - RandomHorizontalFlip: Random horizontal flip (p=0.5)
-  # - RandomVerticalFlip: Random vertical flip (p=0.3)
-  # - ColorJitter: Random color jitter (brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1)
-  # - RandomRotation: Random rotation (±10 degrees)
-  # - RandomErasing: Random erasing (p=0.1, scale=(0.02, 0.1))
-  
-  data_format: custom_mvtec        # data format (custom_mvtec, mvtec, etc.)
-  normal_dir: train/good           # normal sample directory (for Folder format)
+  train_data_path: ./data/train
+  batch_size: 32
+  num_workers: 8
+  image_size: 512
+  use_augmentation: true
 
 training:
-  sampling_ratio: null             # sampling ratio (if null, use num_centers)
-  device: cuda                     # device (cuda, cpu)
-  device_id: 0                     # GPU device ID
+  device: cuda
+  device_id: 0
 
 output:
-  checkpoint_dir: ./checkpoints    # checkpoint save directory
-  results_dir: ./results           # results save directory
-  log_dir: ./logs                  # log save directory
-
-misc:
-  seed: 42                         # random seed
-  verbose: true                    # verbose
+  dir: ./outputs

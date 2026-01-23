@@ -282,7 +282,11 @@ def merge_coco_datasets(
                         break
         
         if not source_file:
-            missing_files.append(str(source_file))
+            missing_files.append({
+                'file_name': file_name,
+                'source_dir': str(source_dir),
+                'dataset_name': info.get('dataset_name', 'unknown')
+            })
             continue
         
         # 类别ID 0为正常，其他都是异常
@@ -292,9 +296,11 @@ def merge_coco_datasets(
             abnormal_images.append((image_id, source_file))
     
     if missing_files:
-        print(f"\n警告: 有 {len(missing_files)} 个文件未找到（前5个）:")
-        for f in missing_files[:5]:
-            print(f"  - {f}")
+        print(f"\n警告: 有 {len(missing_files)} 个文件未找到:")
+        for f_info in missing_files:
+            print(f"  - 文件名: {f_info['file_name']}")
+            print(f"    数据集: {f_info['dataset_name']}")
+            print(f"    搜索目录: {f_info['source_dir']}")
     
     # 划分训练集和测试集
     random.seed(seed)

@@ -1,63 +1,39 @@
 """
-DINOv3 image level anomaly detection example
-
-show how to use DINOv3 image level detector.
-use config file to manage all parameters.
+DINOv3 异常检测示例（CLS 模式）
 """
 
-from pathlib import Path
 from hq_anomaly_detection import AnomalyDetector
 
 
 def main():
-    """main function example"""
-    
-    # 1. create detector from config file
-    print("init DINOv3 image level detector...")
+    # 1. 创建检测器
+    print("初始化检测器...")
     detector = AnomalyDetector(config_path="configs/dinov3_image_level.yaml")
-    print("DINOv3 image level detector initialized.")
-    # 2. train model (batch loading data, avoid memory overflow)
-    print("\ntrain model...")
-    print("use batch loading data strategy, avoid memory overflow...")
     
+    # 2. 训练
+    print("\n训练模型...")
     detector.train()
-    print("model trained.")
     
-    # 3. save model
-    detector.save_model("./checkpoints/dinov3_image_level_checkpoint.pth")
-    print("model saved.")
+    # 3. 保存
+    checkpoint = "./outputs/checkpoint.pth"
+    detector.save_model(checkpoint)
+    print(f"模型已保存: {checkpoint}")
     
-    # 4. load trained model
-    detector.load_model("./checkpoints/dinov3_image_level_checkpoint.pth")
-    print("trained model loaded.")
+    # 4. 加载并推理
+    detector.load_model(checkpoint)
     
-    # 5. detect image (single image)
-    print("\ndetect image...")
+    result = detector.detect("./data/test/image.png", threshold=0.5)
     
-    # detect single image
-    result = detector.detect(
-        image_path="./data/test/image.png",
-        threshold=0.5,  # 异常阈值（可选）
-    )
+    print(f"\n检测结果:")
+    print(f"  异常分数: {result['anomaly_score']:.4f}")
+    if 'prediction' in result:
+        print(f"  预测: {'异常' if result['prediction'] else '正常'}")
     
-    print(f"\ndetect result:")
-    print(f"  anomaly score: {result['anomaly_score']:.4f}")
-    print(f"  prediction: {'anomaly' if result['prediction'] else 'normal'}")
-    
-    # 6. batch predict
-    print("\nbatch predict...")
-    image_paths = ["./data/test/image.png", "./data/test/image.png"]
-    results = detector.predict_batch(image_paths, threshold=0.5)
-    for i, result in enumerate(results):
-        print(f"  image {i+1}: anomaly score={result['anomaly_score']:.4f}, "
-              f"prediction={'anomaly' if result['prediction'] else 'normal'}")
-    
-    print("\nexample completed!")
-    print("\nnotes:")
-    print("1. use config file to manage all parameters")
-    print("2. use batch loading data strategy, control memory usage through buffer_size")
-    print("3. when buffer is full, automatically sample new embeddings")
-    print("4. image level detection only returns anomaly score, no spatial anomaly map")
+    # 批量推理
+    print("\n批量推理...")
+    results = detector.predict_batch(["./data/test/image.png"] * 2, threshold=0.5)
+    for i, r in enumerate(results):
+        print(f"  图片 {i+1}: 分数={r['anomaly_score']:.4f}")
 
 
 if __name__ == "__main__":

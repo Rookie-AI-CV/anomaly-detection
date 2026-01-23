@@ -1,14 +1,11 @@
 """
 Anomaly detector core module.
-
-Provides unified interface for anomaly detection models.
-Supports DINOv3 image-level anomaly detection.
+统一的异常检测接口，支持 cls/patch/combined 三种模式。
 """
 
 import logging
-from typing import Union, Optional, Dict, Any, List
+from typing import Union, Optional, Dict, Any, Literal
 from pathlib import Path
-import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
@@ -18,340 +15,176 @@ logger = logging.getLogger(__name__)
 
 
 class AnomalyDetector:
-    """Unified anomaly detector interface."""
     
-    def __init__(self, config_path: Union[str, Path], checkpoint_path: Optional[Union[str, Path]] = None):
-        """
-        Initialize anomaly detector from config file.
-        
-        Args:
-            config_path: Path to YAML config file
-            checkpoint_path: Optional checkpoint path (if provided, will use model info from checkpoint)
-        """
+    def __init__(self, config_path: Union[str, Path] = None, checkpoint_path: Optional[Union[str, Path]] = None, config=None):
         from hq_anomaly_detection.core.config import Config
         
-        self.config_path = Path(config_path)
-        self.config = Config.from_file(config_path)
-        self.model = None
-        
-        self.model_name = self.config.get("model.name")
-        if self.model_name is None:
-            raise ValueError("Config must contain 'model.name' field")
-        
-        # If checkpoint provided, load model info from it first to avoid downloading
-        self.checkpoint_path = None
-        if checkpoint_path:
-            checkpoint_path = Path(checkpoint_path)
-            if checkpoint_path.exists():
-                self.checkpoint_path = checkpoint_path
-                checkpoint = torch.load(checkpoint_path, map_location='cpu')
-                # Use model info from checkpoint if available
-                if 'model_name' in checkpoint:
-                    self.config.set("model.dino_model_name", checkpoint['model_name'])
-                # If checkpoint has feature_extractor_state_dict, skip downloading by setting a dummy model_path
-                # The weights will be loaded from checkpoint later
-                if 'feature_extractor_state_dict' in checkpoint:
-                    # Set a dummy path to prevent downloading (will load from checkpoint instead)
-                    self.config.set("model.model_path", "__checkpoint__")
-                elif 'model_path' in checkpoint and checkpoint['model_path']:
-                    self.config.set("model.model_path", checkpoint['model_path'])
-        
-        self._initialize_model()
-    
-    def _initialize_model(self):
-        """Initialize model from config."""
-        logger.info(f"Initializing {self.model_name} model...")
-        
-        if self.model_name == "dinov3_image_level":
-            from hq_anomaly_detection.models.dinov3.image_level import DINOv3ImageLevelDetector
-            
-            dino_model_name = self.config.get("model.dino_model_name")
-            model_path = self.config.get("model.model_path") or None
-            num_centers = self.config.get("model.num_centers")
-            buffer_size = self.config.get("model.buffer_size")
-            num_neighbors = self.config.get("model.num_neighbors")
-            
-            self.model = DINOv3ImageLevelDetector(
-                model_name=dino_model_name,
-                model_path=model_path,
-                num_centers=num_centers,
-                buffer_size=buffer_size,
-                num_neighbors=num_neighbors,
-            )
-            
-            logger.info(
-                f"DINOv3ImageLevelDetector initialized: "
-                f"model_name={dino_model_name}, model_path={model_path}"
-            )
+        if config is not None:
+            self.config = config
+        elif config_path:
+            self.config = Config.from_file(config_path)
         else:
+            raise ValueError("Must provide config_path or config")
+        
+        self.model = None
+        self.model_name = self.config.get("model.name")
+        
+        # 处理 checkpoint
+        if checkpoint_path and Path(checkpoint_path).exists():
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            if 'model_name' in checkpoint:
+                self.config.set("model.dino_model_name", checkpoint['model_name'])
+        
+        self._init_model()
+        
+        # 加载 checkpoint
+        if checkpoint_path and Path(checkpoint_path).exists():
+            self.model.load_checkpoint(checkpoint_path)
+    
+    def _init_model(self):
+        """初始化模型"""
+        if self.model_name != "dinov3_image_level":
             raise ValueError(f"Unsupported model: {self.model_name}")
         
-        # Move model to configured device
-        self._move_model_to_device()
+        from hq_anomaly_detection.models.dinov3.image_level import DINOv3ImageLevelDetector
+        
+        self.model = DINOv3ImageLevelDetector(
+            model_name=self.config.get("model.dino_model_name"),
+            model_path=self.config.get("model.model_path"),
+            num_centers=self.config.get("model.num_centers", 50000),
+            buffer_size=self.config.get("model.buffer_size", 2500000),
+            num_neighbors=self.config.get("model.num_neighbors", 1),
+            reduce_dim=self.config.get("model.reduce_dim"),
+            use_faiss=self.config.get("model.use_faiss", True),
+            cls_weight=self.config.get("model.cls_weight", 0.5),
+        )
+        
+        self._to_device()
+        logger.info(f"Model initialized: {self.config.get('model.dino_model_name')}")
     
-    def load_model(self, checkpoint_path: Union[str, Path]):
-        """
-        Load model from checkpoint.
-        
-        Args:
-            checkpoint_path: Path to model checkpoint
-        """
-        logger.info(f"Loading model from {checkpoint_path}")
-        
-        if self.model is None:
-            raise ValueError("Model not initialized. Call __init__ first.")
-        
-        if self.model_name == "dinov3_image_level":
-            self.model.load_checkpoint(checkpoint_path)
-        else:
-            raise ValueError(f"Model loading for {self.model_name} not yet implemented.")
-        
-        # Move model to GPU if available
-        self._move_model_to_device()
-    
-    def _move_model_to_device(self):
-        """Move model to configured device (GPU or CPU)."""
+    def _to_device(self):
         device_str = self.config.get("training.device", "cuda")
         device_id = self.config.get("training.device_id", 0)
         
         if device_str == "cuda" and torch.cuda.is_available():
-            device = torch.device(f"cuda:{device_id}")
-            logger.info(f"Moving model to GPU: {device}")
-            self.model = self.model.to(device)
+            self._device = torch.device(f"cuda:{device_id}")
         else:
-            device = torch.device("cpu")
-            logger.info("Moving model to CPU (CUDA not available or device set to cpu)")
-            self.model = self.model.to(device)
+            self._device = torch.device("cpu")
+        
+        self.model = self.model.to(self._device)
+        logger.info(f"Model on device: {self._device}")
+    
+    def _get_device(self) -> torch.device:
+        return getattr(self, '_device', torch.device('cpu'))
+    
+    def _get_mode(self) -> str:
+        """获取检测模式：cls / patch / combined"""
+        return self.config.get("model.detection_mode", "cls")
+    
+    # ========== 训练 ==========
     
     def train(self):
-        """Train model using batch loading strategy to avoid memory overflow."""
-        logger.info(f"Training {self.model_name} model...")
+        mode = self._get_mode()
+        device = self._get_device()
         
-        if self.model is None:
-            raise ValueError("Model not initialized. Call __init__ first.")
+        # 创建数据集
+        dataloader = self._create_dataloader(is_training=True)
         
-        if self.model_name == "dinov3_image_level":
-            # Get detection mode (default: image_level)
-            detection_mode = self.config.get("model.detection_mode", "image_level")
-            
-            train_data_path = self.config.get("data.train_data_path")
-            batch_size = self.config.get("data.batch_size")
-            num_workers = self.config.get("data.num_workers")
-            image_size = self.config.get("data.image_size")
-            sampling_ratio = self.config.get("training.sampling_ratio") or None
-            
-            # Get device (model should already be on device from _initialize_model)
-            device = next(self.model.parameters()).device if next(self.model.parameters()).is_cuda else torch.device('cpu')
-            
-            # Get augmentation configuration
-            use_augmentation = self.config.get("data.use_augmentation", True)
-            
-            # Print training configuration information
-            logger.info(f"Training configuration:")
-            logger.info(f"  - Detection mode: {detection_mode}")
-            logger.info(f"  - Device: {device}")
-            logger.info(f"  - Image size: {image_size}")
-            logger.info(f"  - Batch size: {batch_size}")
-            logger.info(f"  - Num workers: {num_workers}")
-            logger.info(f"  - Train data path: {train_data_path}")
-            logger.info(f"  - Data augmentation: {use_augmentation}")
-            
-            train_dataset = SimpleImageDataset(
-                data_path=train_data_path,
-                image_size=image_size,
-                is_training=True,
-                use_augmentation=use_augmentation
+        logger.info(f"Training mode: {mode}, device: {device}")
+        
+        # 使用新的统一训练接口
+        self.model.train_on_dataloader(dataloader, mode=mode, device=device)
+        
+        logger.info(f"Training completed!")
+    
+    def _create_dataloader(self, is_training: bool = True) -> DataLoader:
+        """创建数据加载器"""
+        dataset = SimpleImageDataset(
+            data_path=self.config.get("data.train_data_path"),
+            image_size=self.config.get("data.image_size", 224),
+            is_training=is_training,
+            use_augmentation=self.config.get("data.use_augmentation", True) and is_training,
+        )
+        
+        device = self._get_device()
+        return DataLoader(
+            dataset,
+            batch_size=self.config.get("data.batch_size", 32),
+            shuffle=is_training,
+            num_workers=self.config.get("data.num_workers", 4),
+            pin_memory=(device.type == "cuda"),
+        )
+    
+    # ========== 推理 ==========
+    
+    def detect(self, image_path: Union[str, Path], threshold: Optional[float] = None) -> Dict[str, Any]:
+        """检测单张图片的异常"""
+        mode = self._get_mode()
+        cls_weight = self.config.get("model.cls_weight", 0.5)
+        
+        image_tensor = self._load_image(image_path)
+        
+        with torch.no_grad():
+            result = self.model.predict(
+                image_tensor, 
+                mode=mode, 
+                cls_weight=cls_weight,
+                return_anomaly_map=(mode in ['patch', 'combined'])
             )
-            train_dataloader = DataLoader(
-                train_dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                num_workers=num_workers,
-                pin_memory=(device.type == "cuda"),  # Use pin_memory only for GPU
-            )
-            
-            if detection_mode == "patchcore_style":
-                # PatchCore-style: extract patch-level features
-                logger.info("Extracting patch-level features from training data...")
-                self.model.extract_patch_features_batch(train_dataloader, device=device)
-                
-                logger.info("Building patch memory bank...")
-                self.model.build_patch_memory_bank(sampling_ratio)
-                
-                logger.info("PatchCore-style training completed!")
-            else:
-                # Image-level: extract image-level features (cls_token)
-                logger.info("Extracting image-level features from training data...")
-                self.model.extract_features_batch(train_dataloader, device=device)
-                
-                logger.info("Building memory bank...")
-                self.model.build_memory_bank(sampling_ratio)
-                
-                logger.info("Image-level training completed!")
-        else:
-            raise ValueError(f"Training for {self.model_name} not yet implemented.")
+        
+        return self._format_result(result, threshold)
     
-    def detect(
-        self,
-        image_path: Union[str, Path],
-        threshold: Optional[float] = None,
-    ) -> Dict[str, Any]:
-        """
-        Detect anomalies in a single image.
+    def _load_image(self, image_path: Union[str, Path]) -> torch.Tensor:
+        """加载并预处理图片"""
+        image_size = self.config.get("data.image_size", 224)
+        transform = transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
         
-        Args:
-            image_path: Path to image
-            threshold: Optional anomaly threshold
-            
-        Returns:
-            Dict with:
-            - anomaly_score: Anomaly score
-            - anomaly_map: Anomaly map (None for image-level)
-            - prediction: Whether anomaly detected
-        """
-        logger.debug(f"Detecting anomalies in {image_path}")
-        
-        if self.model is None:
-            raise ValueError("Model not initialized. Call __init__ first.")
-        
-        if self.model_name == "dinov3_image_level":
-            # Get detection mode (default: image_level)
-            detection_mode = self.config.get("model.detection_mode", "image_level")
-            
-            image_size = self.config.get("data.image_size")
-            
-            image = Image.open(image_path).convert('RGB')
-            transform = transforms.Compose([
-                transforms.Resize((image_size, image_size)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ])
-            image_tensor = transform(image).unsqueeze(0)
-            
-            device = next(self.model.parameters()).device if next(self.model.parameters()).is_cuda else torch.device('cpu')
-            image_tensor = image_tensor.to(device)
-            
-            with torch.no_grad():
-                if detection_mode == "patchcore_style":
-                    # Use PatchCore-style detection
-                    result = self.model.predict_patchcore_style(image_tensor, return_anomaly_map=False)
-                else:
-                    # Use image-level detection
-                    result = self.model.predict(image_tensor)
-            
-            prediction = None
-            if threshold is not None:
-                prediction = result['anomaly_score'] > threshold
-            
-            return_dict = {
-                "anomaly_score": float(result['anomaly_score'][0]),
-                "anomaly_map": result.get('anomaly_map', None),
-            }
-            if prediction is not None:
-                return_dict["prediction"] = bool(prediction[0])
-            
-            return return_dict
-        else:
-            raise ValueError(f"Detection for {self.model_name} not yet implemented.")
+        image = Image.open(image_path).convert('RGB')
+        image_tensor = transform(image).unsqueeze(0)
+        return image_tensor.to(self._get_device())
     
-    def detect_patchcore_style(
-        self,
-        image_path: Union[str, Path],
-        threshold: Optional[float] = None,
-        return_anomaly_map: bool = False,
-    ) -> Dict[str, Any]:
-        """
-        Detect anomalies using PatchCore-style method (patch-level features + max pooling).
+    def _format_result(self, result: Dict, threshold: Optional[float]) -> Dict[str, Any]:
+        """格式化预测结果"""
+        output = {
+            "anomaly_score": float(result['anomaly_score'][0]),
+            "anomaly_map": result.get('anomaly_map'),
+        }
         
-        Args:
-            image_path: Path to image
-            threshold: Optional anomaly threshold
-            return_anomaly_map: Whether to return anomaly map
-            
-        Returns:
-            Dict with:
-            - anomaly_score: Anomaly score (max of patch scores)
-            - anomaly_map: Anomaly map (patch-level scores) or None
-            - prediction: Whether anomaly detected
-        """
-        logger.debug(f"Detecting anomalies using PatchCore-style method in {image_path}")
+        # 添加各级别分数（如果有）
+        if 'cls_score' in result:
+            output['cls_score'] = float(result['cls_score'][0])
+        if 'patch_score' in result:
+            output['patch_score'] = float(result['patch_score'][0])
         
-        if self.model is None:
-            raise ValueError("Model not initialized. Call __init__ first.")
+        # 阈值判断
+        if threshold is not None:
+            output['prediction'] = output['anomaly_score'] > threshold
         
-        if self.model_name == "dinov3_image_level":
-            image_size = self.config.get("data.image_size")
-            
-            image = Image.open(image_path).convert('RGB')
-            transform = transforms.Compose([
-                transforms.Resize((image_size, image_size)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ])
-            image_tensor = transform(image).unsqueeze(0)
-            
-            device = next(self.model.parameters()).device if next(self.model.parameters()).is_cuda else torch.device('cpu')
-            image_tensor = image_tensor.to(device)
-            
-            with torch.no_grad():
-                result = self.model.predict_patchcore_style(image_tensor, return_anomaly_map=return_anomaly_map)
-            
-            prediction = None
-            if threshold is not None:
-                prediction = result['anomaly_score'] > threshold
-            
-            return_dict = {
-                "anomaly_score": float(result['anomaly_score'][0]),
-                "anomaly_map": result['anomaly_map'][0] if result['anomaly_map'] is not None else None,
-            }
-            if prediction is not None:
-                return_dict["prediction"] = bool(prediction[0])
-            
-            return return_dict
-        else:
-            raise ValueError(f"PatchCore-style detection for {self.model_name} not yet implemented.")
+        return output
     
-    def predict_batch(
-        self,
-        image_paths: list,
-        threshold: Optional[float] = None
-    ) -> list:
-        """
-        Batch prediction.
-        
-        Args:
-            image_paths: List of image paths
-            threshold: Optional anomaly threshold
-            
-        Returns:
-            List of detection results
-        """
-        results = []
-        for img_path in image_paths:
-            result = self.detect(img_path, threshold)
-            results.append(result)
-        return results
+    def predict_batch(self, image_paths: list, threshold: Optional[float] = None) -> list:
+        """批量预测"""
+        return [self.detect(p, threshold) for p in image_paths]
+    
+    # ========== 保存/加载 ==========
     
     def save_model(self, save_path: Union[str, Path]):
-        """
-        Save model checkpoint.
-        
-        Args:
-            save_path: Path to save checkpoint
-        """
-        logger.info(f"Saving model to {save_path}")
-        
-        if self.model is None:
-            raise ValueError("Model not initialized. Call __init__ first.")
-        
-        if self.model_name == "dinov3_image_level":
-            self.model.save_checkpoint(save_path)
-        else:
-            raise ValueError(f"Model saving for {self.model_name} not yet implemented.")
+        """保存模型"""
+        self.model.save_checkpoint(save_path)
+        logger.info(f"Model saved: {save_path}")
+    
+    def load_model(self, checkpoint_path: Union[str, Path]):
+        """加载模型"""
+        self.model.load_checkpoint(checkpoint_path)
+        self._to_device()
+        logger.info(f"Model loaded: {checkpoint_path}")
 
 
 class SimpleImageDataset(Dataset):
-    """Simple image dataset for training and inference."""
     
     def __init__(
         self,
@@ -360,58 +193,43 @@ class SimpleImageDataset(Dataset):
         is_training: bool = True,
         use_augmentation: bool = True,
     ):
-        """
-        Initialize dataset.
-        
-        Args:
-            data_path: Path to data directory
-            image_size: Target image size
-            is_training: Whether in training mode
-            use_augmentation: Whether to use data augmentation (only for training)
-        """
         self.data_path = Path(data_path)
         self.image_size = image_size
-        self.is_training = is_training
         self.use_augmentation = use_augmentation and is_training
         
+        # 收集图片
         self.image_paths = []
-        for ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']:
-            self.image_paths.extend(list(self.data_path.glob(f'**/*{ext}')))
-            self.image_paths.extend(list(self.data_path.glob(f'**/*{ext.upper()}')))
+        for ext in ['jpg', 'jpeg', 'png', 'bmp', 'tiff', 'tif']:
+            self.image_paths.extend(self.data_path.glob(f'**/*.{ext}'))
+            self.image_paths.extend(self.data_path.glob(f'**/*.{ext.upper()}'))
         
-        if len(self.image_paths) == 0:
+        if not self.image_paths:
             raise ValueError(f"No images found in {data_path}")
         
-        logger.info(f"Found {len(self.image_paths)} images in {data_path}")
+        logger.info(f"Found {len(self.image_paths)} images")
         
-        # Build transform pipeline
+        # 构建 transform
+        self.transform = self._build_transform()
+    
+    def _build_transform(self):
         if self.use_augmentation:
-            # Training transforms with augmentation
-            self.transform = transforms.Compose([
-                transforms.Resize((int(image_size * 1.1), int(image_size * 1.1))),  # Slightly larger for crop
-                transforms.RandomCrop(image_size),
+            return transforms.Compose([
+                transforms.Resize((int(self.image_size * 1.1), int(self.image_size * 1.1))),
+                transforms.RandomCrop(self.image_size),
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomVerticalFlip(p=0.3),  # Less common in real scenarios
-                transforms.ColorJitter(
-                    brightness=0.2,
-                    contrast=0.2,
-                    saturation=0.2,
-                    hue=0.1
-                ),
+                transforms.RandomVerticalFlip(p=0.3),
+                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
                 transforms.RandomRotation(degrees=10),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                transforms.RandomErasing(p=0.1, scale=(0.02, 0.1)),  # Optional: random erasing
+                transforms.RandomErasing(p=0.1, scale=(0.02, 0.1)),
             ])
-            logger.info("Data augmentation enabled for training")
         else:
-            # Inference transforms (no augmentation)
-            self.transform = transforms.Compose([
-                transforms.Resize((image_size, image_size)),
+            return transforms.Compose([
+                transforms.Resize((self.image_size, self.image_size)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
-            logger.info("Data augmentation disabled (inference mode or augmentation disabled)")
     
     def __len__(self):
         return len(self.image_paths)
@@ -419,8 +237,7 @@ class SimpleImageDataset(Dataset):
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
         image = Image.open(image_path).convert('RGB')
-        image_tensor = self.transform(image)
         return {
-            'image': image_tensor,
+            'image': self.transform(image),
             'image_path': str(image_path),
         }

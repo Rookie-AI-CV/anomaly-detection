@@ -27,8 +27,8 @@ USE_INDEXED_NAMES="1"
 
 ARGS=(
     --datasets "${full_paths[@]}"
-    --output_dir  /root/autodl-tmp/maopiweicheguang
-    --train_ratio 0.9
+    --output_dir  /root/autodl-tmp/maopiweicheguang2
+    --train_ratio 0.0
     --seed 42
 )
 

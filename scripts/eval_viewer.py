@@ -24,6 +24,9 @@ def load_csv(file_path):
             row['predicted_label'] = int(row['predicted_label'])
             row['anomaly_score'] = float(row['anomaly_score'])
             row['is_correct'] = int(row['is_correct'])
+            # 最近邻图片路径（可选字段）
+            if 'nearest_neighbor_path' not in row:
+                row['nearest_neighbor_path'] = ''
             row['index'] = len(csv_data)
             csv_data.append(row)
     return len(csv_data)

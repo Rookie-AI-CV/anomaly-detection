@@ -280,6 +280,11 @@
                 grid-template-columns: 1fr;
             }
         }
+        @media (min-width: 1600px) {
+            .charts-grid {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -392,6 +397,10 @@
                     <canvas id="distributionChart"></canvas>
                 </div>
                 <div class="chart-container">
+                    <div class="chart-title">异常分数统计数量分布（直方图）</div>
+                    <canvas id="histogramChart"></canvas>
+                </div>
+                <div class="chart-container">
                     <div class="chart-title">PR曲线 (Precision-Recall)</div>
                     <canvas id="prChart"></canvas>
                 </div>
@@ -408,6 +417,7 @@
         let currentIndex = 0;
         let stats = {};
         let distributionChart = null;
+        let histogramChart = null;
         let prChart = null;
         let scoreRange = { min: 0, max: 10 };
 
@@ -491,34 +501,34 @@
                 distributionChart.destroy();
             }
             
+            // 修复密度分布图：将 x 和 y 配对
             const datasets = [];
             if (data.normal.length > 0) {
                 datasets.push({
                     label: '正常样本',
-                    data: normalKDE.y,
+                    data: normalKDE.x.map((x, i) => ({ x: x, y: normalKDE.y[i] })),
                     borderColor: 'rgb(54, 162, 235)',
                     backgroundColor: 'rgba(54, 162, 235, 0.1)',
                     fill: true,
-                    tension: 0.4
+                    tension: 0.4,
+                    pointRadius: 0
                 });
             }
             if (data.anomaly.length > 0) {
                 datasets.push({
                     label: '异常样本',
-                    data: anomalyKDE.y,
+                    data: anomalyKDE.x.map((x, i) => ({ x: x, y: anomalyKDE.y[i] })),
                     borderColor: 'rgb(255, 99, 132)',
                     backgroundColor: 'rgba(255, 99, 132, 0.1)',
                     fill: true,
-                    tension: 0.4
+                    tension: 0.4,
+                    pointRadius: 0
                 });
             }
-            
-            const labels = normalKDE.x.length > 0 ? normalKDE.x.map(x => x.toFixed(2)) : anomalyKDE.x.map(x => x.toFixed(2));
             
             distributionChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
                     datasets: datasets
                 },
                 options: {
@@ -531,11 +541,17 @@
                         },
                         tooltip: {
                             mode: 'index',
-                            intersect: false
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(4)}`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         x: {
+                            type: 'linear',
                             title: {
                                 display: true,
                                 text: '异常分数'
@@ -552,6 +568,9 @@
                 }
             });
             
+            // 加载直方图
+            loadHistogram(data);
+            
             setTimeout(updateThresholdLine, 100);
         }
 
@@ -559,44 +578,187 @@
             if (!distributionChart) return;
             
             const chart = distributionChart;
-            const labels = chart.data.labels;
             const baseDatasets = chart.data.datasets.filter(d => !d.label || !d.label.startsWith('阈值:'));
             
             if (currentThreshold !== null) {
-                let thresholdIndex = -1;
-                let minDiff = Infinity;
-                for (let i = 0; i < labels.length; i++) {
-                    const diff = Math.abs(parseFloat(labels[i]) - currentThreshold);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        thresholdIndex = i;
+                // 找到最大 y 值
+                let maxY = 0;
+                baseDatasets.forEach(dataset => {
+                    if (dataset.data && dataset.data.length > 0) {
+                        const datasetMax = Math.max(...dataset.data.map(p => p.y || 0));
+                        maxY = Math.max(maxY, datasetMax);
+                    }
+                });
+                
+                // 创建阈值线：从 x=threshold 的垂直线
+                const thresholdDataset = {
+                    label: `阈值: ${currentThreshold.toFixed(2)}`,
+                    data: [
+                        { x: currentThreshold, y: 0 },
+                        { x: currentThreshold, y: maxY * 1.1 }
+                    ],
+                    borderColor: 'rgb(255, 0, 0)',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0
+                };
+                
+                chart.data.datasets = [...baseDatasets, thresholdDataset];
+            } else {
+                chart.data.datasets = baseDatasets;
+            }
+            
+            chart.update();
+            
+            // 同时更新直方图的阈值线
+            updateHistogramThresholdLine();
+        }
+        
+        function loadHistogram(data) {
+            if (data.normal.length === 0 && data.anomaly.length === 0) {
+                return;
+            }
+            
+            // 计算直方图的 bins
+            const allScores = [...data.normal, ...data.anomaly];
+            const min = Math.min(...allScores);
+            const max = Math.max(...allScores);
+            const numBins = 50; // 使用50个bins
+            const binWidth = (max - min) / numBins;
+            
+            // 计算每个 bin 的计数
+            const normalBins = new Array(numBins).fill(0);
+            const anomalyBins = new Array(numBins).fill(0);
+            
+            data.normal.forEach(score => {
+                const binIndex = Math.min(Math.floor((score - min) / binWidth), numBins - 1);
+                normalBins[binIndex]++;
+            });
+            
+            data.anomaly.forEach(score => {
+                const binIndex = Math.min(Math.floor((score - min) / binWidth), numBins - 1);
+                anomalyBins[binIndex]++;
+            });
+            
+            // 创建 bin 中心点
+            const binCenters = [];
+            for (let i = 0; i < numBins; i++) {
+                binCenters.push(min + (i + 0.5) * binWidth);
+            }
+            
+            const ctx = document.getElementById('histogramChart').getContext('2d');
+            
+            if (histogramChart) {
+                histogramChart.destroy();
+            }
+            
+            const datasets = [];
+            if (data.normal.length > 0) {
+                datasets.push({
+                    label: '正常样本',
+                    data: binCenters.map((x, i) => ({ x: x, y: normalBins[i] })),
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    fill: true,
+                    tension: 0
+                });
+            }
+            if (data.anomaly.length > 0) {
+                datasets.push({
+                    label: '异常样本',
+                    data: binCenters.map((x, i) => ({ x: x, y: anomalyBins[i] })),
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                    fill: true,
+                    tension: 0
+                });
+            }
+            
+            histogramChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y} 个样本`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            title: {
+                                display: true,
+                                text: '异常分数'
+                            },
+                            offset: true
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '样本数量'
+                            },
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
                     }
                 }
+            });
+            
+            updateHistogramThresholdLine();
+        }
+        
+        function updateHistogramThresholdLine() {
+            if (!histogramChart) return;
+            
+            const chart = histogramChart;
+            const baseDatasets = chart.data.datasets.filter(d => !d.label || !d.label.startsWith('阈值:'));
+            
+            if (currentThreshold !== null) {
+                // 找到最大 y 值
+                let maxY = 0;
+                baseDatasets.forEach(dataset => {
+                    if (dataset.data && dataset.data.length > 0) {
+                        const datasetMax = Math.max(...dataset.data.map(p => p.y || 0));
+                        maxY = Math.max(maxY, datasetMax);
+                    }
+                });
                 
-                if (thresholdIndex >= 0) {
-                    const maxY = Math.max(...baseDatasets.flatMap(d => d.data || []));
-                    const thresholdData = new Array(labels.length).fill(null);
-                    thresholdData[thresholdIndex] = maxY * 1.1;
-                    
-                    const thresholdDataset = {
-                        label: `阈值: ${currentThreshold.toFixed(2)}`,
-                        data: thresholdData,
-                        borderColor: 'rgb(255, 0, 0)',
-                        backgroundColor: 'transparent',
-                        borderWidth: 2,
-                        borderDash: [5, 5],
-                        pointRadius: 5,
-                        pointHoverRadius: 5,
-                        pointBackgroundColor: 'rgb(255, 0, 0)',
-                        fill: false,
-                        tension: 0,
-                        showLine: true
-                    };
-                    
-                    chart.data.datasets = [...baseDatasets, thresholdDataset];
-                } else {
-                    chart.data.datasets = baseDatasets;
-                }
+                // 创建阈值线
+                const thresholdDataset = {
+                    label: `阈值: ${currentThreshold.toFixed(2)}`,
+                    data: [
+                        { x: currentThreshold, y: 0 },
+                        { x: currentThreshold, y: maxY * 1.1 }
+                    ],
+                    borderColor: 'rgb(255, 0, 0)',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0
+                };
+                
+                chart.data.datasets = [...baseDatasets, thresholdDataset];
             } else {
                 chart.data.datasets = baseDatasets;
             }
