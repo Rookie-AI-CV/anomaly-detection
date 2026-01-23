@@ -9,11 +9,9 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
-# 检查 FAISS GPU 支持
 FAISS_GPU_AVAILABLE = False
 if torch.cuda.is_available():
     try:
-        # 检查 FAISS 是否支持 GPU（检查是否有 GpuIndexFlatL2）
         if hasattr(faiss, 'GpuIndexFlatL2') and hasattr(faiss, 'StandardGpuResources'):
             FAISS_GPU_AVAILABLE = True
     except (AttributeError, ImportError):
@@ -149,9 +147,9 @@ class KCenterGreedyMemoryBank:
         self._optimal_batch_size = estimated_batch
         
         logger.info(
-            f"自适应批量大小: {estimated_batch} "
-            f"(显存: {allocated/1024**3:.2f}GB/{total/1024**3:.2f}GB, "
-            f"可用: {free/1024**3:.2f}GB, n={n}, d={d})"
+            f"Adaptive batch size: {estimated_batch} "
+            f"(GPU memory: {allocated/1024**3:.2f}GB/{total/1024**3:.2f}GB, "
+            f"available: {free/1024**3:.2f}GB, n={n}, d={d})"
         )
         
         return estimated_batch
@@ -235,13 +233,13 @@ class KCenterGreedyMemoryBank:
         n = embeddings.shape[0]
         
         logger.info(
-            f"开始采样: 从 {n} 个样本中选择 {num_samples} 个中心点 "
-            f"(采样率: {sampling_ratio:.2%}, 设备: {embeddings.device})"
+            f"Start sampling: from {n} samples to select {num_samples} centers "
+            f"(sampling rate: {sampling_ratio:.2%}, device: {embeddings.device})"
         )
         
         # 超大规模数据使用随机采样
         if n > 1000000 and num_samples > 100000:
-            logger.warning(f"数据规模过大 (N={n}), 使用随机采样")
+            logger.warning(f"Data size too large (N={n}), using random sampling")
             np.random.seed(42)
             return np.random.choice(n, size=num_samples, replace=False).tolist()
         
@@ -275,11 +273,11 @@ class KCenterGreedyMemoryBank:
         min_distances[first_idx] = -float('inf')
         
         # 使用 tqdm 进度条
-        desc = f"K-Center Greedy 采样 (GPU加速, batch={batch_size})" if self.use_gpu else "K-Center Greedy 采样 (CPU)"
+        desc = f"K-Center Greedy Sample (GPU accelerated, batch={batch_size})" if self.use_gpu else "K-Center Greedy Sample (CPU)"
         pbar = tqdm(
             range(1, num_samples),
             desc=desc,
-            unit="样本",
+            unit="sample",
             ncols=100
         )
         
@@ -305,9 +303,9 @@ class KCenterGreedyMemoryBank:
                 
                 # 更新进度条描述
                 pbar.set_postfix({
-                    '已选择': f"{i + 1}/{num_samples}",
-                    '进度': f"{(i + 1) / num_samples * 100:.1f}%",
-                    '设备': str(device),
+                    'selected': f"{i + 1}/{num_samples}",
+                    'progress': f"{(i + 1) / num_samples * 100:.1f}%",
+                    'device': str(device),
                     'batch': len(candidate_indices)
                 })
         else:
@@ -326,15 +324,15 @@ class KCenterGreedyMemoryBank:
                 
                 # 更新进度条描述
                 pbar.set_postfix({
-                    '已选择': f"{i + 1}/{num_samples}",
-                    '进度': f"{(i + 1) / num_samples * 100:.1f}%",
-                    '设备': str(device)
+                    'selected': f"{i + 1}/{num_samples}",
+                    'progress': f"{(i + 1) / num_samples * 100:.1f}%",
+                    'device': str(device)
                 })
         
         pbar.close()
         logger.info(
-            f"K-Center Greedy 采样完成: 共选择 {len(selected_indices)} 个中心点 "
-            f"(设备: {device}, 批量大小: {batch_size})"
+            f"K-Center Greedy sample completed: selected {len(selected_indices)} centers "
+            f"(device: {device}, batch size: {batch_size})"
         )
         
         return selected_indices
@@ -359,8 +357,8 @@ class KCenterGreedyMemoryBank:
         # 使用 tqdm 进度条
         pbar = tqdm(
             range(1, num_samples),
-            desc="K-Center Greedy 采样 (FAISS CPU)",
-            unit="样本",
+            desc="K-Center Greedy sample (FAISS CPU)",
+            unit="sample",
             ncols=100
         )
         
@@ -375,12 +373,12 @@ class KCenterGreedyMemoryBank:
             
             # 更新进度条描述
             pbar.set_postfix({
-                '已选择': f"{i + 1}/{num_samples}",
-                '进度': f"{(i + 1) / num_samples * 100:.1f}%"
+                'selected': f"{i + 1}/{num_samples}",
+                'progress': f"{(i + 1) / num_samples * 100:.1f}%"
             })
         
         pbar.close()
-        logger.info(f"K-Center Greedy 采样完成 (FAISS CPU): 共选择 {num_samples} 个中心点")
+        logger.info(f"K-Center Greedy sample completed (FAISS CPU): selected {num_samples} centers")
         
         return selected_indices
     
@@ -406,8 +404,8 @@ class KCenterGreedyMemoryBank:
         # 使用 tqdm 进度条
         pbar = tqdm(
             range(1, num_samples),
-            desc="K-Center Greedy 采样 (FAISS GPU)",
-            unit="样本",
+            desc="K-Center Greedy sample (FAISS GPU)",
+            unit="sample",
             ncols=100
         )
         
@@ -422,12 +420,12 @@ class KCenterGreedyMemoryBank:
             
             # 更新进度条描述
             pbar.set_postfix({
-                '已选择': f"{i + 1}/{num_samples}",
-                '进度': f"{(i + 1) / num_samples * 100:.1f}%"
+                'selected': f"{i + 1}/{num_samples}",
+                'progress': f"{(i + 1) / num_samples * 100:.1f}%"
             })
         
         pbar.close()
-        logger.info(f"K-Center Greedy 采样完成 (FAISS GPU): 共选择 {num_samples} 个中心点")
+        logger.info(f"K-Center Greedy sample completed (FAISS GPU): selected {num_samples} centers")
         
         return selected_indices
     

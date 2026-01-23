@@ -15,4 +15,9 @@ scikit-learn>=1.0.0
 matplotlib>=3.5.0
 tqdm>=4.64.0
 pyyaml>=6.0
-wandb>=0.13.0  
+wandb>=0.13.0
+
+# 可选：FAISS 加速（对齐 PatchCore）
+# 根据环境选择 faiss-cpu 或 faiss-gpu
+# faiss-cpu  # CPU 版本
+# faiss-gpu  # GPU 版本（需要 CUDA）
