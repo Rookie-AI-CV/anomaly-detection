@@ -1,0 +1,24 @@
+# DINOv3 分类模型训练配置
+
+model:
+  name: dinov3_base
+  model_path: /root/autodl-tmp/model/vit_base_patch16_dinov3.lvd1689m/model.safetensors
+  # unfreeze_patterns:  # 通过正则表达式指定解冻的层
+    # - 'blocks\.(11|12)$'  # 解冻最后2层blocks
+    # - 'norm$'  # 解冻norm层
+
+data:
+  train_data_path: ./data/cifar10/train  # 训练集路径（包含类别子文件夹）
+  val_data_path: ./data/cifar10/val  # 验证集路径（包含类别子文件夹）
+  batch_size: 32
+  num_workers: 4
+
+training:
+  epochs: 10
+  lr_backbone: 0.00001  # Backbone学习率 (1e-5)
+  lr_classifier: 0.001  # 分类头学习率 (1e-3)
+  device: cuda
+  device_id: 0ç
+
+output:
+  dir: ./outputs-classifier
